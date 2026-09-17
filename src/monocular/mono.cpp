@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <fstream>
 #include <chrono>
+#include <unistd.h>
 
 #include "rclcpp/rclcpp.hpp"
 #include "monocular-slam-node.hpp"
@@ -28,7 +29,15 @@ int main(int argc, char **argv)
     std::cout << "============================ " << std::endl;\
 
     rclcpp::spin(node);
+    node.reset(); // runs ~MonocularSlamNode() now: SLAM->Shutdown() + trajectory save
     rclcpp::shutdown();
 
-    return 0;
+    // ORB_SLAM3's Viewer thread (Pangolin GL + OpenCV/GTK window) is never
+    // joined and keeps running after Shutdown(). Returning normally from
+    // main() runs global/static destructors (e.g. the DDS layer's) while
+    // that orphaned thread is still mid GL/GTK call, which segfaults inside
+    // the NVIDIA EGL driver or libgdk on this machine. Everything we need
+    // (trajectory, Atlas) is already saved above, so skip that teardown
+    // entirely instead of trying to make the orphaned thread exit safely.
+    _exit(0);
 }
