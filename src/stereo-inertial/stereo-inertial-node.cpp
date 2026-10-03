@@ -134,12 +134,20 @@ cv::Mat StereoInertialNode::GetImage(const ImageMsg::SharedPtr msg)
 void StereoInertialNode::SyncWithImu()
 {
     const double maxTimeDiff = 0.01;
+    const std::chrono::milliseconds tIdle(1);
 
-    while (1)
+    // Exit on shutdown so ~StereoInertialNode() can join this thread and save the trajectory
+    while (rclcpp::ok())
     {
         cv::Mat imLeft, imRight;
         double tImLeft = 0, tImRight = 0;
-        if (!imgLeftBuf_.empty() && !imgRightBuf_.empty() && !imuBuf_.empty())
+        if (imgLeftBuf_.empty() || imgRightBuf_.empty() || imuBuf_.empty())
+        {
+            // Sleep instead of busy-waiting, which would burn a full core and skew CPU measurements
+            std::this_thread::sleep_for(tIdle);
+            continue;
+        }
+        else
         {
             tImLeft = Utility::StampToSec(imgLeftBuf_.front()->header.stamp);
             tImRight = Utility::StampToSec(imgRightBuf_.front()->header.stamp);
@@ -166,7 +174,11 @@ void StereoInertialNode::SyncWithImu()
                 continue;
             }
             if (tImLeft > Utility::StampToSec(imuBuf_.back()->header.stamp))
+            {
+                // waiting for IMU data newer than the image
+                std::this_thread::sleep_for(tIdle);
                 continue;
+            }
 
             bufMutexLeft_.lock();
             imLeft = GetImage(imgLeftBuf_.front());
